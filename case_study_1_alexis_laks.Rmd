@@ -1,0 +1,843 @@
+---
+title: "Statistics in Action - case study 1"
+author: "Toxicity assessment of the MON810 maize"
+output:
+  html_document:
+    fig_height: 3
+    fig_width: 8
+    number_sections: yes
+    toc: no
+---
+
+
+
+</br>
+
+
+# Introduction
+
+The dataset <ttt>dataMON810_2018.csv</ttt> consists of several measurements made during a subchronic toxicity study concerning the MON810 maize.
+
+Biochemical parameters reflecting most physiological functions were measured two times (week 5 and 14), in particular through serum and urine chemistry, and hematology. Organ weights were measured at week 14.
+
+The main objective of this study is to evaluate possible GMO effects on these parameters.
+
+# Single comparison
+
+   1. We consider the variable "CALCIUM".
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(ggplot2) 
+library(pwr)
+
+don <- read.csv("dataMON810_2018.csv")
+summary(is.na(don))
+don %>% 
+  glimpse
+```
+
+     a. test if the mean level of calcium for period 2 is the same for males and females.  </br>**Hint:** plot first the data and justify the test(s) to use.
+     
+Before we move on, let's get an idea of how the CALCIUM data is distributed in our data to get an idea of what test would be appropriate for us :
+     
+```{r include=FALSE}
+dist1 <-  don %>% 
+  filter(period == 2) %>% 
+  select(CALCIUM, sex) %>%
+  na.omit
+
+dist1 %>% 
+  mutate(mean = mean(CALCIUM)) %>% 
+  ggplot() +
+  aes(x = CALCIUM, fill = sex) +
+  geom_histogram(bins = 25) + 
+  geom_vline(aes(xintercept = mean), linetype = 3) +
+  facet_grid(~sex) +
+  theme_bw()
+qqnorm(dist1$CALCIUM)
+qqline(dist1$CALCIUM)
+```
+
+We could say that the data on Calcium levels are approximately normal, although we must take note of heavy tails seen on hte qqplot.
+    
+```{r}
+theme_set(theme_bw())
+don %>%
+  filter(period == 2) %>% 
+  ggplot() +
+  geom_point(aes(x = CALCIUM, y = as.numeric(sex), color = sex)) +
+  ylab(NULL) +
+  scale_y_continuous(breaks=NULL, limits=c(-2,5)) + 
+  xlab("Calcium level") +
+  ggtitle("Calcium levels according to gender")
+don %>%
+  filter(period == 2) %>% 
+  ggplot() +
+    geom_boxplot(aes(x = sex, y = CALCIUM, colour = sex)) + 
+    xlab("Gender") +
+    ylab("Calcium level") +
+    ggtitle("Calcium levels according to gender") +
+    scale_y_log10()
+```
+
+Here we could hardly assume equal variances, although we should use an F-test to check this assumption:
+
+```{r}
+aggregate(don$CALCIUM ~ don$sex, FUN = "sd" )
+# Indeed, standard deviation is 3 times higher for female rats! Is it significant though?
+
+male <- don %>%
+  select(sex, CALCIUM) %>% 
+  filter(sex == "M" & CALCIUM != "NA")
+female <- don %>% 
+  select(sex, CALCIUM) %>% 
+  filter(sex == "F" & CALCIUM != "NA") 
+
+alpha = 0.05
+var.test(male$CALCIUM, female$CALCIUM, conf.level = (1 - alpha), alternative = 'two.sided')
+```
+
+The p-value being very low we thus reject the null hypothesis (ratio of variances = 1) and do not consider equal variances for our t.test comparing means:
+
+```{r}
+t.test(male$CALCIUM, female$CALCIUM, conf.level=(1-alpha), var.equal = FALSE)
+```
+
+We obtain an extremely low p-value, which would lead us to reject H0 and consider that the mean levels of Calcium in the 2 genders can not be considered as equal.
+
+     b. test for the males if the mean level of calcium is the same for period 1 and period 2.
+     
+Let us check again the distribution of the data in this case :
+
+```{r}
+dist2 <- don %>% 
+  filter(sex == "M") %>% 
+  select(CALCIUM, period) %>%
+  na.omit
+
+dist2 %>% 
+  mutate(mean = mean(CALCIUM)) %>% 
+  ggplot() +
+  aes(x = CALCIUM, fill = period) +
+  geom_histogram(bins = 25) + 
+  geom_vline(aes(xintercept = mean), linetype = 3) +
+  facet_grid(~as.factor(period)) +
+  theme_bw()
+qqnorm(dist2$CALCIUM)
+qqline(dist2$CALCIUM)
+```
+
+Again, we could say that the data here approximately follows a normal distribution. Let's move on to visualizing the data more in detail:
+  
+```{r}
+don %>% 
+  filter(sex == "M") %>% 
+  select(period, CALCIUM) %>% 
+  ggplot() +
+  aes(x = CALCIUM, y = as.numeric(period), color = period) +
+  geom_point() +
+  ylab(NULL) +
+  scale_y_continuous(breaks=NULL, limits=c(-2,5)) + 
+  xlab("Calcium level") +
+  ggtitle("Calcium levels in rats according to period")
+don %>% 
+  filter(sex == "M") %>% 
+  select(period, CALCIUM) %>% 
+  ggplot() +
+  aes(x = as.factor(period), y = CALCIUM, color = as.factor(period)) +
+  geom_boxplot() +
+  xlab("Period") +
+  ylab("Calcium level") +
+  ggtitle("Calcium level in male rats in both periods") +
+  theme_minimal() + 
+  scale_y_log10()
+
+don <- don %>% 
+  mutate(period = as.factor(period))
+```
+     
+We can already see that there is a difference in Calcium levels for male rats between both rats, we'll try to assess if this difference is significant or not using a t.test once again. 
+
+```{r}
+try1 <- don %>% 
+  filter(sex == "M")
+aggregate(try1$CALCIUM ~ try1$period, FUN = "sd" )
+# Indeed, standard deviation is twice as high in period 2! Let's check if it's significantly different :
+
+male_p1 <- don %>%
+  filter(sex == "M") %>% 
+  select(period, CALCIUM) %>% 
+  filter(period == 1 & CALCIUM != "NA")
+male_p2 <- don %>% 
+  filter(sex == "M") %>% 
+  select(period, CALCIUM) %>% 
+  filter(period == 2 & CALCIUM != "NA") 
+
+var.test(male_p1$CALCIUM, male_p2$CALCIUM, conf.level = (1 - alpha), alternative = 'two.sided')
+```
+
+Again, the p-value being very low we thus reject the null hypothesis (ratio of variances = 1) and do not consider equal variances for our t.test comparing means:
+
+```{r}
+alpha = 0.05
+t.test(male_p1$CALCIUM, male_p2$CALCIUM, conf.level=(1-alpha), var.equal = FALSE)
+```
+
+We strongly reject the null hypothesis given a very low p-value, we can therefore consider (at first hand, we must be careful with p-values) that the levels of calcium in male rats are not the same in period 1 and 2.
+     
+     c. test for the males if the mean level of calcium for period 2 is the same for the control group and the MON810 group.
+     
+```{r}
+dist3 <- don %>% 
+  filter(sex == "M" & period == 2) %>% 
+  filter(regimen == "control" | regimen == "MON810") %>% 
+  select(CALCIUM, regimen) %>%
+  na.omit
+
+dist3 %>% 
+  mutate(mean = mean(CALCIUM)) %>% 
+  ggplot() +
+  aes(x = CALCIUM, fill = regimen) +
+  geom_histogram(bins = 25) + 
+  geom_vline(aes(xintercept = mean), linetype = 3) +
+  facet_grid(~regimen) +
+  theme_bw()
+qqnorm(dist3$CALCIUM)
+qqline(dist3$CALCIUM)
+```
+
+This time it may be far-fetched to say that the data are normally distributed (mainly due to the fact that we have much less in comparison to previously!) so we'll proceed considering normal distribtuion, and we will then verify our results using a wilcoxon rank test which does not require any assumption on the data:
+
+# Normal distribution assumption :
+
+```{r}
+don %>%
+  filter(sex == "M") %>% 
+  filter(regimen == "control" | regimen == "MON810") %>% 
+  filter(period == 2) %>% 
+  select(regimen, CALCIUM) %>%
+  ggplot() +
+  aes(x = CALCIUM, y = as.numeric(regimen), color = regimen) +
+  geom_point() +
+  ylab(NULL) +
+  scale_y_continuous(breaks=NULL, limits=c(-2,5)) +
+  xlab("Calcium level") +
+  ggtitle("Calcium levels in male rats according to regimen in period 2")
+don %>%
+  filter(sex == "M") %>% 
+  filter(regimen == "control" | regimen == "MON810") %>% 
+  filter(period == 2) %>%  
+  select(regimen, CALCIUM) %>% 
+  ggplot() +
+  aes(x = as.factor(regimen), y = CALCIUM, color = as.factor(regimen)) +
+  geom_boxplot() +
+  xlab("Regimen") +
+  ylab("Calcium level") +
+  ggtitle("Calcium levels in male rats according to regimen in period 2") +
+  theme_minimal() + 
+  scale_y_log10()
+```
+     
+Here a difference in calcium levels is barely distinguishable, although we could see a slight tendancy in MON810 to have "extreme" values. We will still run a t.test to verify if a difference, if there is, is significant or not. We will also once again check if the equal variances assumption can hold here or not :
+
+```{r}
+try2 <- don %>%
+  filter(sex == "M") %>% 
+  filter(regimen == "control" | regimen == "MON810") %>% 
+  filter(period == 2) 
+aggregate(try2$CALCIUM ~ try2$regimen, FUN = "sd" )
+# Indeed, standard deviation of MON810 is almost twice that of control!
+
+male_ctrl <- don %>%
+  filter(sex == "M") %>% 
+  filter(regimen == "control" & CALCIUM != "NA") %>% 
+  filter(period == 2) %>%  
+  select(period, CALCIUM)
+male_mon8 <- don %>%
+  filter(sex == "M") %>% 
+  filter(regimen == "MON810" & CALCIUM != "NA") %>% 
+  filter(period == 2) %>%  
+  select(period, CALCIUM)
+
+var.test(male_ctrl$CALCIUM, male_mon8$CALCIUM, conf.level = (1 - alpha), alternative = 'two.sided')
+```
+
+Here rejecting the null is defintely discussable, we're borderline under the sacrosanct p-value of 0.05. We could try with and without equal variance assumption to so how much this affects our results :
+
+## With equal variances assumption :
+
+```{r}
+alpha = 0.05
+t.test(male_ctrl$CALCIUM, male_mon8$CALCIUM, conf.level=(1-alpha), var.equal = TRUE)
+```
+
+## Without equal variances assumption :
+
+```{r}
+alpha = 0.05
+t.test(male_ctrl$CALCIUM, male_mon8$CALCIUM, conf.level=(1-alpha), var.equal = FALSE)
+```
+
+In both cases our p-value is larger than any tolerable significance level, we therefore do not reject H0 meaning that we can not consider that they are not equal. Although we can note that under equal variance assumption we did get a lower p-value than without. 
+
+# No assumption of distribution :
+
+```{r}
+wilcox.test(male_ctrl$CALCIUM, male_mon8$CALCIUM, alternative = 'two.sided', conf.level=1-alpha)
+```
+
+We reach the same result as previously, although the p-value has drasticly risen! In any case we can conclude that we cannot say that the mean level of calcium for period 2 is NOT the same for the control group and the MON810 group
+
+     d. What is the probability to detect a difference of 1 sd (one standard deviation) with only 10 animals per group? with 20 animal? How can we ensure to detect such difference with a probability of 80%?
+     
+Until now we've seen various conclusions depending on which groups we've considered to see if there was an effect on calcium levels, although relying on the p-value is not sufficient to claim difference/no difference between groups. Here we should rather consider what our study can indeed detect. We can check this looking at the power of the t.test we've been running till now :
+
+## 1. 10 animals per group
+     
+```{r}
+pwr.t.test(n = 10, d = 1, type = "two.sample", alternative = "two.sided", sig.level = alpha)
+```
+
+We can see that for a group size of 10 we can detect a difference of 1 sd with a probability of 56.2 %
+
+## 2. 20 animals per group
+
+```{r}
+pwr.t.test(n = 20, d = 1, type = "two.sample", alternative = "two.sided", sig.level = alpha)
+```
+
+As expected, increasing the group size has increased the probability of detecting a difference, here for a diff of on sd in a group size of 20 we have a 86.9 % chance of detecting such a difference.
+
+## 3. Probability of detecting a difference of 80 %
+
+Using the same function, we can fix the probability of detection rather than fixing the sample size!
+
+```{r}
+pwr.t.test(power = 0.8 , d = 1, type = "two.sample", alternative = "two.sided", sig.level = alpha)
+```
+
+We see that in order to have an 80% chance of detecting a 1 sd difference between groups we will need a sample size of n = 17 approximately. 
+     
+     e. Test for the males if the mean levels of calcium for period 2 of the control group and the MON810 are equivalent. The equivalence limits will be defined using the 6 reference groups as *i)* one standard deviation of the 6 reference means, *ii)* two standard deviations of the 6 reference means.
+     
+# 1. 1 sd of the 6 ref means
+
+```{r}
+refs <- don %>%
+  filter(sex == "M") %>% 
+  filter(period == 2) %>% 
+  filter(regimen != "control" & regimen != "MON810") %>% 
+  filter(CALCIUM != "NA") 
+
+mean_ref <- refs %>% 
+  group_by(regimen) %>% 
+  summarise(mean = mean(CALCIUM))
+
+std <- sd(mean_ref$mean)
+
+equivalence::tost(male_ctrl$CALCIUM, male_mon8$CALCIUM, alpha = alpha, epsilon = std)
+```
+
+For an equivalence limit of 1 sd of the 6 reference means we get a very large p-value, we thus do not reject the null hypothesis and we consider the calcium levels for males rats in period 2 as equivalent despite the different regimen. 
+
+# 2. 2 sd of the 6 ref means
+
+```{r}
+equivalence::tost(male_ctrl$CALCIUM, male_mon8$CALCIUM, alpha = alpha, epsilon = 2*std)
+```
+
+We conclude the same thing as before, the two groups are considered as equivalent even for an equivalence limit of 2 sd. 
+     
+     f. Summarize and comment these results.
+     
+- a) period 2 - male vs female :
+
+Distribution of calcium level allowed t.test which yielded a low p-value : We rejected H0 considering the mean level of calcium for male and female rats to be different. 
+
+- b) male - period 1 vs period 2 : 
+
+Distribution of calcium level allowed t.test which yielded a low p-value : Again, we rejected H0 considering the mean level of calcium for male rats to be different in periods 1 and 2.
+
+- c) male - regimen control vs regimen MON810 :
+
+Distribution of calcium level was troublesome as we had very few data, we thus did both a t.test assuming normal distribution of calcium levels and a wilcoxon rank test which required no assumption on distribution - All tests yielded the same conclusion, we do not reject the null hypothesis which leads us to consider that the difference in mean level of calcium of the two groups may be the same. 
+
+- d) We checked the probability to find a difference of 1 sd depending on different sample sizes with a t-test :
+
+n = 10 -> 56.2 % chance of detecting 1 sd difference
+n = 20 -> 86.9 % chance of detecting 1 sd difference
+n = 17 -> 80 % chance of detecting 1 sd difference
+
+- e)  male - regimen control vs regimen MON810 but using equivalence testing :
+   
+We checked for difference in mean levels of calcium between the two regimens control and MON810 but using equivalence testing to confort us in our claims, considering two equivalence limits (1sd and 2sd of the 6 reference means). Both tost procedures yielded the same conclusion as the previous t.test and wilcoxon rank test, namely that the mean levels of calcium in both groups is considered equivalent. 
+  
+   2. Do the same analysis with the variable "DIRBILI" (direct bilirubin)
+
+    a. male vs female 
+     
+Let's have a look at the distribution of the data :
+     
+```{r}
+don %>% select(DIRBILI) %>% summary()
+```
+     
+     
+```{r}
+dist4 <-  don %>% 
+  filter(period == 2) %>% 
+  select(DIRBILI, sex) %>%
+  na.omit
+
+dist4 %>% 
+  mutate(mean = mean(DIRBILI)) %>% 
+  ggplot() +
+  aes(x = DIRBILI, color = sex) +
+  geom_histogram(bins = 25) + 
+  geom_vline(aes(xintercept = mean), linetype = 3) +
+  facet_grid(~sex) +
+  theme_bw()
+```
+
+Seems we are faced with discrete data (here only two levels) with only two levels (0.100 and 0.001). We can therefore construct a contigency table and perform a test to check if the means of the two groups are the same for the two genders.
+
+```{r}
+tbl <- table(dist4)
+```
+
+# Binomial test :
+
+```{r}
+m_M <- (tbl[1,2])/sum(tbl[,2]) # Getting proportion for males 
+binom.test(tbl[1,1],sum(tbl[,1]),p = m_M) # and comparing to females
+```
+
+We get a very high p-value, we thus do not reject H0 and we could consider that the mean level of direct bilirubin is the same in male and female rats. We can try out other tests to get more than one indicator on the subject:
+
+# Chi-squared test :
+
+Here we take out the default argument correct = TRUE which adjusts the chi-squared value in case there are very low counts in the contingency table considered. Here this is not our case, we will therefore take it out as it could artificially increase the p-value:
+
+```{r}
+chisq.test(tbl, correct = FALSE)
+```
+
+# Fisher exact test :
+
+```{r}
+fisher.test(tbl)
+```
+
+# Wilcoxon rank test :
+
+Since the wilcoxon rank test does not require any assumption on the distribution of the data we are considering it is a very usefull one in our case :
+
+```{r}
+male_dr <- dist4 %>% 
+  filter(sex == "M")
+
+female_dr <- dist4 %>% 
+  filter(sex == "F")
+
+wilcox.test(male_dr$DIRBILI, female_dr$DIRBILI, alternative = 'two.sided', conf.level=1-alpha)
+```
+
+The Binomial test, Chi-squared test, Fisher exact test and the Wilcoxon rank sum test all yield the same result, namely that the mean level of direct bilirubin could be considered to be the same in male and female rats. 
+
+    b. male rats - period 1 vs 2
+    
+```{r}
+dist5 <- don %>% 
+  filter(sex == "M") %>% 
+  select(period, DIRBILI) %>% 
+  na.omit
+
+dist5 %>% 
+  mutate(mean = mean(DIRBILI)) %>% 
+  ggplot() +
+  aes(x = DIRBILI, fill = period) +
+  geom_histogram(bins = 25) + 
+  geom_vline(aes(xintercept = mean), linetype = 3) +
+  facet_grid(~period) +
+  theme_bw()
+```
+    
+Here again we are facing discrete data, although we now have 3 levels. We will directly go to a wilcoxon rank sum test:
+
+```{r}
+male_p1_dr <- dist5 %>% 
+  filter(period == 1)
+
+male_p2_dr <- dist5 %>% 
+  filter(period == 2)
+
+wilcox.test(male_p1_dr$DIRBILI, male_p2_dr$DIRBILI, alternative = 'two.sided', conf.level=1-alpha)
+```
+
+The Wilcoxon rank sum test yields a very low p-value leading us to reject the null hypothesis, namely that the levels of direct bilirubin can not be considered the same between period one and two.
+
+    c.  male rats - regimen control vs MON810
+    
+```{r}
+dist6 <- don %>% 
+  filter(sex == "M") %>% 
+  filter(period == 2) %>% 
+  filter(regimen %in% c("control","MON810")) %>% 
+  select(regimen, DIRBILI) %>% 
+  na.omit
+
+dist6 %>% 
+  mutate(mean = mean(DIRBILI)) %>% 
+  ggplot() +
+  aes(x = DIRBILI, fill = regimen) +
+  geom_histogram(bins = 25) + 
+  geom_vline(aes(xintercept = mean), linetype = 3) +
+  facet_grid(~regimen) +
+  theme_bw()
+```
+    
+Same case as with period 1 vs. 2, with 2 levels to consider. Let's move on to the test:
+
+```{r}
+male_ctrl_dr <- dist6 %>% 
+  filter(regimen == "control")
+
+male_mon8_dr <- dist6 %>% 
+  filter(regimen == "MON810")
+
+wilcox.test(male_ctrl_dr$DIRBILI, male_mon8_dr$DIRBILI, alternative = 'two.sided', conf.level=1-alpha)
+```
+
+The test yields a p-value equal to 1. We therefore fail to reject the null hypothesis, the means of both groups being equal. We can verify this using a contigency table:
+
+```{r}
+tbl <- table(dist6)[1:2,1:2]
+```
+
+
+    d. probability of detecting a difference
+    
+As we are not using the same tests here, we need to see what are our chances of detecting differences given a sample size, we'll go through the same process as before: 
+
+```{r}
+pwr.2p.test(n = 10, h = 1, alternative = "two.sided", sig.level = alpha)
+pwr.2p.test(n = 20, h = 1, alternative = "two.sided", sig.level = alpha)
+pwr.2p.test(power = 0.8, h = 1, alternative = "two.sided", sig.level = alpha)
+```
+
+for n = 10 we have a 60.1 % chance of detecting a difference of 1 sd, for n = 20 it's 88.5 % and to get a chance of exactly 80 % we would need 16 observations. This is pretty similar to the performance of the t.test.
+
+    e. Equivalence testing :
+    
+# 1. 1 sd of the 6 ref means
+
+```{r}
+refs_dr <- don %>%
+  filter(sex == "M") %>% 
+  filter(period == 2) %>% 
+  filter(regimen != "control" & regimen != "MON810") %>% 
+  filter(DIRBILI != "NA") 
+
+mean_ref_dr <- refs %>% 
+  group_by(regimen) %>% 
+  summarise(mean = mean(DIRBILI))
+
+std_dr <- sd(mean_ref_dr$mean)
+
+equivalence::tost(male_ctrl_dr$DIRBILI, male_mon8_dr$DIRBILI, alpha = alpha, epsilon = std_dr)
+```
+
+For an equivalence limit of 1 sd of the 6 reference means we get a high p-value, we thus do not reject the null hypothesis and we consider the calcium levels for males rats in period 2 as equivalent despite the different regimen, which goes in the sense of our previous tests. 
+
+# 2. 2 sd of the 6 ref means
+
+```{r}
+equivalence::tost(male_ctrl_dr$DIRBILI, male_mon8_dr$DIRBILI, alpha = alpha, epsilon = 2*std_dr)
+```
+    
+Here we get a troublesome response, the p-value is below the sacrosanct 0.05 threshold, but above the 0.01 level. In any case we could decide to reject the null considering it then that for an equivalence limit of 2 standard deviations of the 6 reference means the mean levels of direct bilirubin are not the same. 
+    
+    f. Summing up
+    
+- a) period 2 - male vs female :
+
+Distribution of direct bilirubin showed only two levels, we were therefore dealing with discrete data. We proceeded to use various tests to check for difference in means of the two groups (male and female). All tests (Binom, Chi-2, Fisher, Wilcoxon) yielded same result, we do not reject the null hypothesis thus we may consider that there is no difference between the two groups.
+
+- b) male - period 1 vs period 2 : 
+
+We were still with discrete data but facing 3 levels, we therefore pursued our tests using wilcoxon rank sum test. Resilt led us to reject H0, thus considering that level of direct billirubin is not the same for male rat in periods 1 and 2.
+
+- c) male - regimen control vs regimen MON810 :
+
+Facing the same number of levels as in the previous case (3 levels), we did another wilcoxon rank sum test which yielded a very high p-value. We therefore failed to reject the null hypothesis considering that there was no significant effect of the change of regimen on direct billirubin
+
+- d) We checked the probability to find a difference of 1 sd depending on different sample sizes with a test on proportions :
+
+n = 10 -> 60.8 % chance of detecting 1 sd difference
+n = 20 -> 88.5 % chance of detecting 1 sd difference
+n = 16 -> 80 % chance of detecting 1 sd difference
+
+- e)  male - regimen control vs regimen MON810 but using equivalence testing :
+   
+We checked again if a change in regimen had an effect on the direct bilirubing levels of male rats in period 2 but using equivalence testing methods. 
+Considering an equivalence limit of 1 sd the p-value obtained was sufficiently high to fail to reject the null, although when using a limit of 2 sd the p-value was under the sacrosanct level of 0.05. 
+We thus failed to reject the null under the first equivalence limit, but rejected under the second limit. So for a limit of 1 sd the levels in both regimen are considered the same, but for a limit of 2sd than this does not hold any more.
+
+</br>
+
+
+# Multiple comparisons
+
+
+   1. Redo the three tests of the previous section (questions a., b. and c.) for now comparing  the means of all the quantitative variables (see the annex 5 of the ANSES report <ttt>BIOT2009sa0285Ra.pdf</ttt> to know the type of each variable). Store the results (i.e. all the p-values) in a dataframe with one variable per row and four columns (name of the variable + three p-values). 
+
+There are actually a lot more quantitative variables than other types of variables in this dataset, the ones that are not quantitative are the following : BILI, PROT, GLUCOSE, BLOOD, KETONE, UROBILI, GAMMAGT
+Checking normal assumptions through graphic representations for all the variables would be too much, instead I'll proceed using the wilcoxon rank sum test which doesn't require any assumption on distributions and which has been proven to be as reliable as the t.test. 
+
+    a. period 2 - male vs female
+   
+```{r}
+don_a_male <- don %>% 
+  filter(sex == "M") %>% 
+  filter(period == 2) 
+
+don_a_female <- don %>% 
+  filter(sex == "F") %>% 
+  filter(period == 2)
+
+numerics <- don %>%
+  select(-GLUCOSE, -BLOOD, -BILI, -PROT ,-KETONE, -UROBILI, -GAMMAGT, -id, -X, -regimen, -sex, -period) %>%
+  colnames()
+
+wilcox_a <- function(variable){
+  
+  variable <- enquo(variable)  
+  
+  don_a_male_new <- don_a_male %>% 
+    select(!!variable) %>% 
+    na.omit
+  
+  don_a_female_new <- don_a_female %>% 
+    select(!!variable) %>% 
+    na.omit
+
+  if(nrow(don_a_male_new) > 0 && nrow(don_a_female_new) > 0){
+      
+    return(wilcox.test((don_a_male_new)[,1],
+                       (don_a_female_new)[,1],
+                 alternative = 'two.sided',
+                 conf.level = 1 - alpha)$p.value)
+  } else {
+      return(NA)
+    }
+}
+
+wilcox_a(numerics[18])
+
+p_vals_a <- data.frame(c(1:length(numerics)))
+for(i in 1:length(numerics)){
+  p_vals_a[i,1] <- wilcox_a(numerics[i])
+}
+```
+   
+    b. male - period 1 vs 2 
+    
+```{r}
+male_p1_b <- don %>% 
+  filter(sex == "M") %>% 
+  filter(period == 1) 
+
+male_p2_b <- don %>% 
+  filter(sex == "F") %>% 
+  filter(period == 2)
+
+wilcox_b <- function(variable){
+  
+  variable <- enquo(variable)  
+  
+  male_p1_b_new <- male_p1_b %>% 
+    select(!!variable) %>% 
+    na.omit
+  
+  male_p2_b_new <- male_p2_b %>% 
+    select(!!variable) %>% 
+    na.omit
+
+  if(nrow(male_p1_b_new) > 0 && nrow(male_p2_b_new) > 0){
+      
+    return(wilcox.test((male_p1_b_new)[,1],
+                       (male_p2_b_new)[,1],
+                        alternative = 'two.sided',
+                        conf.level = 1 - alpha)$p.value)
+  } else {
+      return(NA)
+    }
+}
+
+wilcox_b(numerics[18])
+
+p_vals_b <- data.frame(c(1:length(numerics)))
+for(i in 1:length(numerics)){
+  p_vals_b[i,1] <- wilcox_b(numerics[i])
+}
+```
+
+    c. male - regimen control vs regimen MON810 :
+    
+```{r}
+male_ctrl_c <- don %>% 
+  filter(sex == "M") %>% 
+  filter(period == 2) %>% 
+  filter(regimen == "control")
+
+male_mon8_c <- don %>% 
+  filter(sex == "M") %>% 
+  filter(period == 2) %>% 
+  filter(regimen == "MON810")
+
+wilcox_c <- function(variable){
+  
+  variable <- enquo(variable)  
+  
+  male_ctrl_c_new <- male_ctrl_c %>% 
+    select(!!variable) %>% 
+    na.omit
+  
+  male_mon8_c_new <- male_mon8_c %>% 
+    select(!!variable) %>% 
+    na.omit
+
+  if(nrow(male_ctrl_c_new) > 0 && nrow(male_mon8_c_new) > 0){
+      
+    return(wilcox.test((male_ctrl_c_new)[,1],
+                       (male_mon8_c_new)[,1],
+                        alternative = 'two.sided',
+                        conf.level = 1 - alpha)$p.value)
+  } else {
+      return(NA)
+    }
+}
+
+wilcox_c(numerics[18])
+
+p_vals_c <- data.frame(c(1:length(numerics)))
+for(i in 1:length(numerics)){
+  p_vals_c[i,1] <- wilcox_c(numerics[i])
+}
+```
+    
+```{r}
+df <- data.frame(numerics,p_vals_a,p_vals_b,p_vals_c)
+colnames(df) <- c("Variables", "male vs. female", "period 1 vs. period 2", "control vs. MON810")
+df
+```
+
+
+   2. For each of the three tests, adjust the p-values using the Bonferroni  and the Benjamini-Hochberg corrections. How can we interpret these results?
+   
+```{r}
+Bonferroni <- df %>% 
+  mutate(`male vs. female` =  p.adjust(`male vs. female`,
+                                       method = "bonferroni",
+                                       n = 60-sum(is.na(df$`male vs. female`))),
+         `period 1 vs. period 2` = p.adjust(`period 1 vs. period 2`,
+                                            method = "bonferroni",
+                                            n = 60-sum(is.na(df$`period 1 vs. period 2`))),
+         `control vs. MON810` = p.adjust(`control vs. MON810`,
+                                         method = "bonferroni",
+                                         n = 60-sum(is.na(df$`control vs. MON810`)))
+         )
+
+Benjamini_Hochberg <- df %>% 
+  mutate(`male vs. female` =  p.adjust(`male vs. female`,
+                                       method = "BH",
+                                       n = 60-sum(is.na(df$`male vs. female`))),
+         `period 1 vs. period 2` = p.adjust(`period 1 vs. period 2`,
+                                            method = "BH",
+                                            n = 60-sum(is.na(df$`period 1 vs. period 2`))),
+         `control vs. MON810` = p.adjust(`control vs. MON810`,
+                                         method = "BH",
+                                         n = 60-sum(is.na(df$`control vs. MON810`)))
+         )
+```
+
+The correction here is necessary as we are running several tests, and the chances that a p-value in one of these tests turned out to be signficant may only be due to luck. The corrections we applied take into account this multitude of tests and adjusted the p-values attached accordingly. To get an idea of how much we were exposed to this problem we can compare the different tests with or without the adjustments we made and see where there is a disagreement. To see this let's start by creating two levels with our three p-value dataframes considering a threshold of 0.05 :
+
+```{r}
+standard_05 <- data.frame(df[,1],df[,2:4] < 0.05)
+bonferonni_05 <- data.frame(Bonferroni[,1],Bonferroni[,2:4] < 0.05)
+benjamini_hochberg_05 <- data.frame(Benjamini_Hochberg[,1],Benjamini_Hochberg[,2:4] < 0.05)
+```
+
+Now we only have dataframes telling us whether the test yields a value of 1 (reject H0) or 0. We can thus compare all three dataframes :
+
+# Standard vs Bonferonni :
+
+```{r}
+conflicts_df_bf <- data.frame(numerics, standard_05[,2:4] == bonferonni_05[,2:4])
+colnames(conflicts_df_bf) <- c("Variables",
+                               "male vs. female",
+                               "period 1 vs. period 2",
+                               "control vs. MON810")
+conflicts_df_bf <- conflicts_df_bf %>% 
+  mutate(comp_a = sum(case_when(`male vs. female` == FALSE ~ 1,
+                            TRUE ~ 0)),
+         comp_b = sum(case_when(`period 1 vs. period 2` == FALSE ~ 1,
+                            TRUE ~ 0)),
+         comp_c = sum(case_when(`control vs. MON810` == FALSE ~ 1,
+                            TRUE ~ 0)))
+conflicts_df_bf
+```
+
+- We have 7 differences for male vs female test p-values with bonferonni correction and without
+- We have 2 differences for period 1 vs period 2 test p-values  with bonferonni correction and without
+- We have 0 differences for  control vs MON810 regiment. test p-values  with bonferonni correction and without
+
+We can see that when applying the Bonferroni correction we get some different results, this highlights the issue that was raised earlier. Although it does not constitue a majority it is probable that some of the significant p-values we obtained were so by luck. 
+
+# Standard vs Benjamini-Hochberg :
+
+```{r}
+conflicts_df_bh <- data.frame(cbind(numerics, standard_05[,2:4] == benjamini_hochberg_05[,2:4]))
+colnames(conflicts_df_bh) <- c("Variables",
+                               "male vs. female",
+                               "period 1 vs. period 2",
+                               "control vs. MON810")
+conflicts_df_bh <- conflicts_df_bh %>% 
+  mutate(comp_a = sum(case_when(`male vs. female` == FALSE ~ 1,
+                            TRUE ~ 0)),
+         comp_b = sum(case_when(`period 1 vs. period 2` == FALSE ~ 1,
+                            TRUE ~ 0)),
+         comp_c = sum(case_when(`control vs. MON810` == FALSE ~ 1,
+                            TRUE ~ 0)))
+conflicts_df_bh
+```
+
+Benjamini-Hochberg correction did yield any result that differs from our standard p-values. It may be that the tests we ran were appropriate or that the separation we were looking at was sufficiently clear cut to obtain robust results despite the multitude of tests ran.
+
+# Bonferonni vs Benjamini-Hochberg :
+
+```{r}
+conflicts_bf_bh <- data.frame(cbind(numerics, bonferonni_05[,2:4] == benjamini_hochberg_05[,2:4]))
+colnames(conflicts_bf_bh) <- c("Variables",
+                               "male vs. female",
+                               "period 1 vs. period 2",
+                               "control vs. MON810")
+conflicts_bf_bh <- conflicts_bf_bh %>% 
+  mutate(comp_a = sum(case_when(`male vs. female` == FALSE ~ 1,
+                            TRUE ~ 0)),
+         comp_b = sum(case_when(`period 1 vs. period 2` == FALSE ~ 1,
+                            TRUE ~ 0)),
+         comp_c = sum(case_when(`control vs. MON810` == FALSE ~ 1,
+                            TRUE ~ 0)))
+conflicts_bf_bh
+```
+
+- We have 7 differences for male vs female test p-values with bonferonni and benjamini-hochberg corrections
+- We have 2 differences for period 1 vs period 2 test p-values with bonferonni and benjamini-hochberg corrections
+- No differences for control vs MON810 regiment.
+
+We can see that even when applying adjustments on p-values we do not get a big amount of differences with the standard tests we ran, it seems that the conlusions we may have made on the comparisons for question a, b and c could hold as the tests seem to go in that sense for a majority of the indexes considered in our dataset. In any case the fact that there aren't much differences in conclusions yielded from our tests despite the corrections we made conforts us in our answer. 
+
+
